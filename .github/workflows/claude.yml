@@ -1,0 +1,29 @@
+name: Claude Code — autonomous prototype build
+
+on:
+  issues:
+    types: [opened]
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+  id-token: write
+
+jobs:
+  implement:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          prompt: |
+            A ticket has been filed as this GitHub issue. The repository already
+            contains a working foundation built by the primary build, so implement this
+            issue as an incremental change ON TOP of the current default branch,
+            following the tech stack and conventions in CLAUDE.md. Keep changes minimal
+            and runnable. When you are done, open a pull request whose body contains
+            "Closes #${{ github.event.issue.number }}". Do NOT merge the pull request —
+            a human reviews and merges it.
+          claude_args: "--permission-mode bypassPermissions --model claude-sonnet-4-6 --max-turns 30"
