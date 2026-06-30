@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Golf Price Monitor</title>
+  <link rel="stylesheet" href="/static/style.css" />
+  <!-- Chart.js for price history charts -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+</head>
+<body>
+
+<!-- ── Header ────────────────────────────────────────────────────────────── -->
+<header class="app-header">
+  <div class="header-brand">
+    <span class="header-icon">⛳</span>
+    <h1>Golf Price Monitor</h1>
+  </div>
+  <div class="header-stats" id="header-stats">
+    <span class="stat-pill" id="stat-products">– products</span>
+    <span class="stat-pill" id="stat-prices">– price entries</span>
+    <span class="stat-pill drops" id="stat-drops">– price drops</span>
+  </div>
+  <button class="btn btn-primary" id="btn-add-product">+ Add Product</button>
+</header>
+
+<!-- ── Main layout ────────────────────────────────────────────────────────── -->
+<div class="app-body">
+
+  <!-- Sidebar: product list -->
+  <aside class="sidebar">
+    <div class="sidebar-controls">
+      <input type="text" id="search-input" placeholder="Search products…" autocomplete="off" />
+      <select id="category-filter">
+        <option value="">All categories</option>
+      </select>
+    </div>
+    <div class="product-list" id="product-list">
+      <div class="empty-state">Loading…</div>
+    </div>
+  </aside>
+
+  <!-- Detail panel -->
+  <main class="detail-panel" id="detail-panel">
+    <div class="empty-state large">
+      <div class="empty-icon">⛳</div>
+      <p>Select a product to see its price history,<br>or add a new one to get started.</p>
+    </div>
+  </main>
+
+</div>
+
+<!-- ── Modal: Add / Edit Product ─────────────────────────────────────────── -->
+<div class="modal-backdrop hidden" id="modal-product">
+  <div class="modal">
+    <div class="modal-header">
+      <h2 id="modal-product-title">Add Product</h2>
+      <button class="modal-close" data-modal="modal-product">×</button>
+    </div>
+    <form id="form-product" autocomplete="off">
+      <input type="hidden" id="product-id" />
+      <div class="form-row">
+        <label for="product-name">Name <span class="required">*</span></label>
+        <input type="text" id="product-name" required placeholder="e.g. TaylorMade Stealth 2 Driver" />
+      </div>
+      <div class="form-row two-col">
+        <div>
+          <label for="product-brand">Brand</label>
+          <input type="text" id="product-brand" placeholder="e.g. TaylorMade" />
+        </div>
+        <div>
+          <label for="product-category">Category</label>
+          <select id="product-category"></select>
+        </div>
+      </div>
+      <div class="form-row">
+        <label for="product-url">Product URL</label>
+        <input type="url" id="product-url" placeholder="https://…" />
+      </div>
+      <div class="form-row">
+        <label for="product-description">Description</label>
+        <textarea id="product-description" rows="2" placeholder="Optional notes about this product"></textarea>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-secondary" data-modal="modal-product">Cancel</button>
+        <button type="submit" class="btn btn-primary" id="btn-save-product">Save Product</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- ── Modal: Add Price ───────────────────────────────────────────────────── -->
+<div class="modal-backdrop hidden" id="modal-price">
+  <div class="modal">
+    <div class="modal-header">
+      <h2>Add Price Entry</h2>
+      <button class="modal-close" data-modal="modal-price">×</button>
+    </div>
+    <form id="form-price" autocomplete="off">
+      <input type="hidden" id="price-product-id" />
+      <div class="form-row">
+        <label for="price-value">Price ($) <span class="required">*</span></label>
+        <input type="number" id="price-value" required step="0.01" min="0.01" placeholder="0.00" />
+      </div>
+      <div class="form-row two-col">
+        <div>
+          <label for="price-retailer">Retailer</label>
+          <input type="text" id="price-retailer" placeholder="e.g. Golf Galaxy" />
+        </div>
+        <div>
+          <label for="price-date">Date</label>
+          <input type="datetime-local" id="price-date" />
+        </div>
+      </div>
+      <div class="form-row">
+        <label for="price-notes">Notes</label>
+        <input type="text" id="price-notes" placeholder="e.g. Sale price, used condition…" />
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-secondary" data-modal="modal-price">Cancel</button>
+        <button type="submit" class="btn btn-primary">Add Price</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- ── Modal: Confirm delete ─────────────────────────────────────────────── -->
+<div class="modal-backdrop hidden" id="modal-confirm">
+  <div class="modal modal-sm">
+    <div class="modal-header">
+      <h2>Confirm Delete</h2>
+      <button class="modal-close" data-modal="modal-confirm">×</button>
+    </div>
+    <p id="confirm-message">Are you sure?</p>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" data-modal="modal-confirm">Cancel</button>
+      <button class="btn btn-danger" id="btn-confirm-delete">Delete</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast-container"></div>
+
+<script src="/static/app.js"></script>
+</body>
+</html>
