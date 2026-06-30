@@ -78,6 +78,9 @@ async function loadStats() {
     document.getElementById("stat-products").textContent = `${s.total_products} product${s.total_products !== 1 ? "s" : ""}`;
     document.getElementById("stat-prices").textContent   = `${s.total_price_entries} price entries`;
     document.getElementById("stat-drops").textContent    = `${s.price_drops} price drop${s.price_drops !== 1 ? "s" : ""}`;
+    const n = s.total_alerts || 0;
+    document.getElementById("stat-alerts").textContent   = `${n} alert${n !== 1 ? "s" : ""}`;
+    document.getElementById("btn-view-alerts").textContent = `🔔 ${n} Alert${n !== 1 ? "s" : ""}`;
   } catch (_) {}
 }
 
@@ -139,17 +142,18 @@ async function selectProduct(id) {
   panel.innerHTML = `<div class="empty-state">Loading…</div>`;
 
   try {
-    const [product, priceData] = await Promise.all([
+    const [product, priceData, alerts] = await Promise.all([
       GET(`/products/${id}`),
       GET(`/products/${id}/prices`),
+      GET(`/products/${id}/alerts`),
     ]);
-    renderDetail(product, priceData.items);
+    renderDetail(product, priceData.items, alerts);
   } catch (e) {
     panel.innerHTML = `<div class="empty-state">Error: ${esc(e.message)}</div>`;
   }
 }
 
-function renderDetail(product, prices) {
+function renderDetail(product, prices, alerts = []) {
   const panel = document.getElementById("detail-panel");
 
   const latest = prices[0];
@@ -180,6 +184,7 @@ function renderDetail(product, prices) {
       <div class="detail-actions">
         <button class="btn btn-ghost btn-sm" id="btn-edit-product">Edit</button>
         <button class="btn btn-primary btn-sm" id="btn-add-price">+ Price</button>
+        <button class="btn btn-ghost btn-sm" id="btn-add-alert">+ Alert</button>
         <button class="btn btn-danger btn-sm" id="btn-delete-product">Delete</button>
       </div>
     </div>
@@ -258,6 +263,18 @@ function renderDetail(product, prices) {
       </div>`}
     </div>
 
+    <!-- Price Alerts -->
+    <div class="detail-section">
+      <h3>Price Alerts${alerts.length ? ` <span style="font-weight:400;color:var(--text-muted)">(${alerts.length})</span>` : ""}</h3>
+      ${alerts.length ? `
+        <div class="alert-list">
+          ${alerts.map(a => renderAlertItemHtml(a)).join("")}
+        </div>
+      ` : `
+        <p style="color:var(--text-muted);font-size:13px">No alerts set. Use "+ Alert" to get notified when prices change.</p>
+      `}
+    </div>
+
     <!-- Product info -->
     <div class="detail-section">
       <h3>Product Info</h3>
@@ -297,6 +314,7 @@ function renderDetail(product, prices) {
   // Wire up buttons
   document.getElementById("btn-edit-product").addEventListener("click", () => openEditProduct(product));
   document.getElementById("btn-add-price").addEventListener("click", () => openAddPrice(product.id));
+  document.getElementById("btn-add-alert").addEventListener("click", () => openAddAlert(product.id));
   document.getElementById("btn-delete-product").addEventListener("click", () => confirmDeleteProduct(product));
 
   const emptyPriceBtn = document.getElementById("btn-add-price-empty");
@@ -304,6 +322,17 @@ function renderDetail(product, prices) {
 
   panel.querySelectorAll(".del-btn[data-price-id]").forEach(btn => {
     btn.addEventListener("click", () => confirmDeletePrice(+btn.dataset.priceId, product.id));
+  });
+
+  panel.querySelectorAll(".toggle-alert-btn").forEach(btn => {
+    btn.addEventListener("click", () => toggleAlert(+btn.dataset.alertId, +btn.dataset.isActive, product.id));
+  });
+  panel.querySelectorAll(".edit-alert-btn").forEach(btn => {
+    const alertData = alerts.find(a => a.id === +btn.dataset.alertId);
+    if (alertData) btn.addEventListener("click", () => openEditAlert(alertData, product.id));
+  });
+  panel.querySelectorAll(".del-alert-btn").forEach(btn => {
+    btn.addEventListener("click", () => confirmDeleteAlert(+btn.dataset.alertId, product.id));
   });
 }
 
@@ -435,9 +464,16 @@ document.getElementById("form-price").addEventListener("submit", async e => {
   };
 
   try {
-    await POST(`/products/${productId}/prices`, payload);
-    toast("Price entry added");
+    const result = await POST(`/products/${productId}/prices`, payload);
     closeModal("modal-price");
+    if (result.triggered_alerts && result.triggered_alerts.length > 0) {
+      result.triggered_alerts.forEach(a => {
+        const dir = a.alert_type === "below" ? "dropped below" : "rose above";
+        toast(`Alert triggered: price ${dir} ${fmt(a.threshold_price)}!`);
+      });
+    } else {
+      toast("Price entry added");
+    }
     await Promise.all([loadStats(), selectProduct(+productId)]);
     await loadProducts();
   } catch (e) {
@@ -507,6 +543,165 @@ function esc(str) {
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;");
+}
+
+/* ── Alerts ───────────────────────────────────────────────────────────────── */
+
+function renderAlertItemHtml(a, forGlobal = false) {
+  const typeLabel = a.alert_type === "below" ? "Below" : "Above";
+  const triggeredHtml = a.triggered_at
+    ? `<span class="alert-triggered">Triggered ${fmt(a.triggered_price)} on ${fmtDateShort(a.triggered_at)}</span>`
+    : `<span>Not triggered</span>`;
+  const statusLabel = a.is_active ? "Pause" : "Activate";
+  return `
+    <div class="alert-item${a.triggered_at ? " triggered" : ""} ${a.alert_type}${!a.is_active ? " inactive" : ""}">
+      <span class="alert-type-badge ${a.alert_type}">${typeLabel}</span>
+      <div class="alert-info">
+        <div class="alert-threshold">${fmt(a.threshold_price)}</div>
+        <div class="alert-meta">${a.notes ? esc(a.notes) + " · " : ""}${triggeredHtml}${!a.is_active ? " · <em>Paused</em>" : ""}</div>
+      </div>
+      <div class="alert-actions">
+        <button class="btn btn-ghost btn-sm toggle-alert-btn" data-alert-id="${a.id}" data-is-active="${a.is_active}">${statusLabel}</button>
+        <button class="btn btn-ghost btn-sm edit-alert-btn" data-alert-id="${a.id}">Edit</button>
+        <button class="del-alert-btn" data-alert-id="${a.id}" title="Delete alert">×</button>
+      </div>
+    </div>`;
+}
+
+function openAddAlert(productId) {
+  document.getElementById("modal-alert-title").textContent = "Add Alert";
+  document.getElementById("alert-id").value          = "";
+  document.getElementById("alert-product-id").value  = productId;
+  document.getElementById("alert-type").value        = "below";
+  document.getElementById("alert-threshold").value   = "";
+  document.getElementById("alert-notes").value       = "";
+  openModal("modal-alert");
+}
+
+function openEditAlert(alert, productId) {
+  document.getElementById("modal-alert-title").textContent = "Edit Alert";
+  document.getElementById("alert-id").value          = alert.id;
+  document.getElementById("alert-product-id").value  = productId || alert.product_id;
+  document.getElementById("alert-type").value        = alert.alert_type;
+  document.getElementById("alert-threshold").value   = alert.threshold_price;
+  document.getElementById("alert-notes").value       = alert.notes || "";
+  openModal("modal-alert");
+}
+
+document.getElementById("form-alert").addEventListener("submit", async e => {
+  e.preventDefault();
+  const id        = document.getElementById("alert-id").value;
+  const productId = document.getElementById("alert-product-id").value;
+  const payload = {
+    alert_type:      document.getElementById("alert-type").value,
+    threshold_price: +document.getElementById("alert-threshold").value,
+    notes:           document.getElementById("alert-notes").value.trim(),
+  };
+  try {
+    if (id) {
+      await PUT(`/alerts/${id}`, payload);
+      toast("Alert updated");
+    } else {
+      await POST(`/products/${productId}/alerts`, payload);
+      toast("Alert added");
+    }
+    closeModal("modal-alert");
+    await loadStats();
+    if (state.selectedId) selectProduct(state.selectedId);
+  } catch (e) {
+    toast(e.message, true);
+  }
+});
+
+async function toggleAlert(alertId, isActive, productId) {
+  try {
+    await PUT(`/alerts/${alertId}`, { is_active: !isActive });
+    toast(isActive ? "Alert paused" : "Alert activated");
+    await loadStats();
+    if (productId) selectProduct(productId);
+  } catch (e) {
+    toast(e.message, true);
+  }
+}
+
+function confirmDeleteAlert(alertId, productId) {
+  document.getElementById("confirm-message").textContent = "Delete this alert?";
+  pendingDeleteFn = async () => {
+    await DELETE(`/alerts/${alertId}`);
+    toast("Alert deleted");
+    await loadStats();
+    if (productId) selectProduct(productId);
+  };
+  openModal("modal-confirm");
+}
+
+/* ── All Alerts modal ─────────────────────────────────────────────────────── */
+
+document.getElementById("btn-view-alerts").addEventListener("click", async () => {
+  openModal("modal-all-alerts");
+  await loadAndRenderAllAlerts();
+});
+
+async function loadAndRenderAllAlerts() {
+  const body = document.getElementById("all-alerts-body");
+  body.innerHTML = `<div class="empty-state">Loading…</div>`;
+  try {
+    const alerts = await GET("/alerts");
+    if (!alerts.length) {
+      body.innerHTML = `<div class="empty-state">No alerts configured yet.<br><small>Select a product and use "+ Alert" to add one.</small></div>`;
+      return;
+    }
+    // Group by product
+    const groups = {};
+    alerts.forEach(a => {
+      if (!groups[a.product_id]) groups[a.product_id] = { name: a.product_name, currentPrice: a.current_price, alerts: [] };
+      groups[a.product_id].alerts.push(a);
+    });
+    body.innerHTML = Object.entries(groups).map(([pid, g]) => `
+      <div style="margin-bottom:20px">
+        <div class="alerts-product-heading">
+          <span>${esc(g.name)}</span>
+          <span class="muted-price">Current: ${fmt(g.currentPrice)}</span>
+        </div>
+        <div class="alert-list">
+          ${g.alerts.map(a => renderAlertItemHtml(a, true)).join("")}
+        </div>
+      </div>
+    `).join("");
+
+    body.querySelectorAll(".toggle-alert-btn").forEach(btn => {
+      const a = alerts.find(x => x.id === +btn.dataset.alertId);
+      if (a) btn.addEventListener("click", async () => {
+        await toggleAlert(a.id, +btn.dataset.isActive, null);
+        loadAndRenderAllAlerts();
+      });
+    });
+    body.querySelectorAll(".edit-alert-btn").forEach(btn => {
+      const a = alerts.find(x => x.id === +btn.dataset.alertId);
+      if (a) btn.addEventListener("click", () => {
+        closeModal("modal-all-alerts");
+        openEditAlert(a, a.product_id);
+        // re-open all-alerts after edit modal closes
+        document.getElementById("form-alert").dataset.returnToAll = "1";
+      });
+    });
+    body.querySelectorAll(".del-alert-btn").forEach(btn => {
+      const a = alerts.find(x => x.id === +btn.dataset.alertId);
+      if (a) btn.addEventListener("click", () => {
+        document.getElementById("confirm-message").textContent = "Delete this alert?";
+        pendingDeleteFn = async () => {
+          await DELETE(`/alerts/${a.id}`);
+          toast("Alert deleted");
+          await loadStats();
+          loadAndRenderAllAlerts();
+          if (state.selectedId) selectProduct(state.selectedId);
+        };
+        openModal("modal-confirm");
+      });
+    });
+  } catch (e) {
+    body.innerHTML = `<div class="empty-state">Error: ${esc(e.message)}</div>`;
+  }
 }
 
 /* ── Boot ────────────────────────────────────────────────────────────────── */

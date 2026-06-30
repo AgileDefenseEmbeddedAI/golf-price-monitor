@@ -214,6 +214,49 @@ html, body { height: 100%; font-family: system-ui, -apple-system, sans-serif; fo
 .toast.error { background: var(--danger); }
 @keyframes toast-in { from { opacity: 0; transform: translateX(20px); } to { opacity: 1; transform: translateX(0); } }
 
+/* ── Alerts ───────────────────────────────────────────────────────────────── */
+.modal-lg { width: min(680px, 95vw); }
+.stat-pill.alerts-pill { background: rgba(255,255,255,.15); }
+.btn-alerts {
+  background: rgba(255,255,255,.15); color: #fff;
+  border: 1px solid rgba(255,255,255,.35); border-radius: var(--radius);
+  padding: 6px 12px; font-size: 13px; font-weight: 600; cursor: pointer;
+  white-space: nowrap; transition: background .12s;
+}
+.btn-alerts:hover { background: rgba(255,255,255,.25); }
+
+.alert-list { display: flex; flex-direction: column; gap: 8px; }
+.alert-item {
+  display: flex; align-items: center; gap: 12px;
+  padding: 10px 12px; border: 1px solid var(--border);
+  border-radius: var(--radius); background: var(--bg);
+}
+.alert-item.triggered.below { background: #f0fff4; border-color: var(--accent); }
+.alert-item.triggered.above { background: #fff5f5; border-color: var(--danger); }
+.alert-item.inactive { opacity: 0.5; }
+.alert-type-badge {
+  font-size: 10px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: .5px; padding: 3px 8px; border-radius: 10px; flex: none;
+}
+.alert-type-badge.below { background: var(--drop-bg); color: var(--drop-green); }
+.alert-type-badge.above { background: var(--danger-bg); color: var(--danger); }
+.alert-info { flex: 1; min-width: 0; }
+.alert-threshold { font-size: 15px; font-weight: 700; color: var(--green); }
+.alert-meta { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+.alert-triggered { color: var(--accent); font-weight: 600; }
+.alert-actions { display: flex; gap: 4px; flex: none; align-items: center; }
+.del-alert-btn {
+  color: var(--danger); background: none; border: none; cursor: pointer;
+  font-size: 16px; padding: 0 4px; opacity: .5; line-height: 1;
+}
+.del-alert-btn:hover { opacity: 1; }
+.alerts-product-heading {
+  display: flex; align-items: center; justify-content: space-between;
+  font-weight: 700; font-size: 13px; margin-bottom: 8px;
+  padding-bottom: 6px; border-bottom: 1px solid var(--border);
+}
+.alerts-product-heading .muted-price { font-size: 13px; color: var(--text-muted); font-weight: 400; }
+
 /* ── Scrollbar ────────────────────────────────────────────────────────────── */
 ::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }

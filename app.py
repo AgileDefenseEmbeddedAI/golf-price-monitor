@@ -40,6 +40,19 @@ class PriceCreate(BaseModel):
     recorded_at: Optional[str] = None  # ISO datetime; defaults to now
 
 
+class AlertCreate(BaseModel):
+    threshold_price: float = Field(..., gt=0)
+    alert_type: str = "below"  # "below" or "above"
+    notes: str = ""
+
+
+class AlertUpdate(BaseModel):
+    threshold_price: Optional[float] = None
+    alert_type: Optional[str] = None
+    notes: Optional[str] = None
+    is_active: Optional[bool] = None
+
+
 # ── Helper ───────────────────────────────────────────────────────────────────
 
 def row_to_dict(row: sqlite3.Row) -> dict:
@@ -50,6 +63,13 @@ def get_product_or_404(conn, product_id: int) -> dict:
     row = conn.execute("SELECT * FROM products WHERE id = ?", (product_id,)).fetchone()
     if not row:
         raise HTTPException(status_code=404, detail="Product not found")
+    return row_to_dict(row)
+
+
+def get_alert_or_404(conn, alert_id: int) -> dict:
+    row = conn.execute("SELECT * FROM alerts WHERE id = ?", (alert_id,)).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Alert not found")
     return row_to_dict(row)
 
 
@@ -170,8 +190,28 @@ def add_price(product_id: int, body: PriceCreate):
                 "INSERT INTO price_entries (product_id, price, retailer, notes) VALUES (?, ?, ?, ?)",
                 (product_id, body.price, body.retailer, body.notes),
             )
-        row = conn.execute("SELECT * FROM price_entries WHERE id = ?", (cur.lastrowid,)).fetchone()
-        return row_to_dict(row)
+        entry = row_to_dict(conn.execute("SELECT * FROM price_entries WHERE id = ?", (cur.lastrowid,)).fetchone())
+
+        # Check active alerts and record any that fire
+        active_alerts = conn.execute(
+            "SELECT * FROM alerts WHERE product_id = ? AND is_active = 1",
+            (product_id,),
+        ).fetchall()
+        triggered = []
+        for alert in active_alerts:
+            a = row_to_dict(alert)
+            fired = (
+                (a["alert_type"] == "below" and body.price <= a["threshold_price"])
+                or (a["alert_type"] == "above" and body.price >= a["threshold_price"])
+            )
+            if fired:
+                conn.execute(
+                    "UPDATE alerts SET triggered_at = datetime('now'), triggered_price = ? WHERE id = ?",
+                    (body.price, a["id"]),
+                )
+                triggered.append(a)
+        entry["triggered_alerts"] = triggered
+        return entry
 
 
 @app.delete("/api/prices/{price_id}", status_code=204)
@@ -198,7 +238,6 @@ def get_stats():
         categories = conn.execute(
             "SELECT category, COUNT(*) as count FROM products GROUP BY category ORDER BY count DESC"
         ).fetchall()
-        # Products with price drops (latest price < previous price)
         price_drops = conn.execute("""
             SELECT COUNT(DISTINCT product_id) FROM (
                 SELECT product_id,
@@ -208,12 +247,97 @@ def get_stats():
             )
             WHERE prev_price IS NOT NULL AND price < prev_price
         """).fetchone()[0]
+        total_alerts = conn.execute("SELECT COUNT(*) FROM alerts WHERE is_active = 1").fetchone()[0]
+        triggered_alerts = conn.execute(
+            "SELECT COUNT(*) FROM alerts WHERE is_active = 1 AND triggered_at IS NOT NULL"
+        ).fetchone()[0]
         return {
             "total_products": total_products,
             "total_price_entries": total_prices,
             "price_drops": price_drops,
+            "total_alerts": total_alerts,
+            "triggered_alerts": triggered_alerts,
             "categories": [row_to_dict(r) for r in categories],
         }
+
+
+# ── Alerts ────────────────────────────────────────────────────────────────────
+
+@app.get("/api/alerts")
+def list_all_alerts():
+    with db() as conn:
+        rows = conn.execute("""
+            SELECT a.*, p.name AS product_name, p.brand AS product_brand,
+                   pe.price AS current_price
+            FROM alerts a
+            JOIN products p ON p.id = a.product_id
+            LEFT JOIN price_entries pe ON pe.id = (
+                SELECT id FROM price_entries
+                WHERE product_id = a.product_id
+                ORDER BY recorded_at DESC, id DESC
+                LIMIT 1
+            )
+            ORDER BY a.created_at DESC
+        """).fetchall()
+        return [row_to_dict(r) for r in rows]
+
+
+@app.get("/api/products/{product_id}/alerts")
+def list_product_alerts(product_id: int):
+    with db() as conn:
+        get_product_or_404(conn, product_id)
+        rows = conn.execute(
+            "SELECT * FROM alerts WHERE product_id = ? ORDER BY created_at DESC",
+            (product_id,),
+        ).fetchall()
+        return [row_to_dict(r) for r in rows]
+
+
+@app.post("/api/products/{product_id}/alerts", status_code=201)
+def create_alert(product_id: int, body: AlertCreate):
+    if body.alert_type not in ("below", "above"):
+        raise HTTPException(status_code=400, detail="alert_type must be 'below' or 'above'")
+    with db() as conn:
+        get_product_or_404(conn, product_id)
+        cur = conn.execute(
+            "INSERT INTO alerts (product_id, threshold_price, alert_type, notes) VALUES (?, ?, ?, ?)",
+            (product_id, body.threshold_price, body.alert_type, body.notes),
+        )
+        row = conn.execute("SELECT * FROM alerts WHERE id = ?", (cur.lastrowid,)).fetchone()
+        return row_to_dict(row)
+
+
+@app.put("/api/alerts/{alert_id}")
+def update_alert(alert_id: int, body: AlertUpdate):
+    with db() as conn:
+        get_alert_or_404(conn, alert_id)
+        updates = {}
+        if body.threshold_price is not None:
+            updates["threshold_price"] = body.threshold_price
+        if body.alert_type is not None:
+            if body.alert_type not in ("below", "above"):
+                raise HTTPException(status_code=400, detail="alert_type must be 'below' or 'above'")
+            updates["alert_type"] = body.alert_type
+        if body.notes is not None:
+            updates["notes"] = body.notes
+        if body.is_active is not None:
+            updates["is_active"] = 1 if body.is_active else 0
+        if not updates:
+            raise HTTPException(status_code=400, detail="No fields to update")
+        set_clause = ", ".join(f"{k} = ?" for k in updates)
+        conn.execute(
+            f"UPDATE alerts SET {set_clause} WHERE id = ?",
+            list(updates.values()) + [alert_id],
+        )
+        row = conn.execute("SELECT * FROM alerts WHERE id = ?", (alert_id,)).fetchone()
+        return row_to_dict(row)
+
+
+@app.delete("/api/alerts/{alert_id}", status_code=204)
+def delete_alert(alert_id: int):
+    with db() as conn:
+        get_alert_or_404(conn, alert_id)
+        conn.execute("DELETE FROM alerts WHERE id = ?", (alert_id,))
 
 
 # ── Static files & SPA fallback ───────────────────────────────────────────────

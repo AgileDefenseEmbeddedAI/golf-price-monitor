@@ -46,22 +46,38 @@ CREATE TABLE IF NOT EXISTS price_entries (
     FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE
 );
 
--- Stub table for follow-on issue: price alert system
 CREATE TABLE IF NOT EXISTS alerts (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
     product_id      INTEGER NOT NULL,
     threshold_price REAL    NOT NULL,
     alert_type      TEXT    NOT NULL DEFAULT 'below',
+    notes           TEXT    NOT NULL DEFAULT '',
     is_active       INTEGER NOT NULL DEFAULT 1,
     created_at      TEXT    NOT NULL DEFAULT (datetime('now')),
+    triggered_at    TEXT,
+    triggered_price REAL,
     FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE
 );
 """
 
 
+def _migrate(conn):
+    """Add columns to alerts table for databases created before this schema version."""
+    for col, typedef in [
+        ("notes", "TEXT NOT NULL DEFAULT ''"),
+        ("triggered_at", "TEXT"),
+        ("triggered_price", "REAL"),
+    ]:
+        try:
+            conn.execute(f"ALTER TABLE alerts ADD COLUMN {col} {typedef}")
+        except Exception:
+            pass  # column already exists
+
+
 def init_db():
     with db() as conn:
         conn.executescript(SCHEMA)
+        _migrate(conn)
 
 
 CATEGORIES = [

@@ -57,25 +57,47 @@ def main():
     with db() as conn:
         existing = conn.execute("SELECT COUNT(*) FROM products").fetchone()[0]
         if existing > 0:
-            print("Database already has data. Skipping seed.")
-            return
-
-        product_ids = []
-        for p in PRODUCTS:
-            cur = conn.execute(
-                "INSERT INTO products (name, brand, category, description, url) VALUES (?, ?, ?, ?, ?)",
-                (p["name"], p["brand"], p["category"], p["description"], p["url"]),
-            )
-            product_ids.append(cur.lastrowid)
-            print(f"  Added product: {p['name']}")
-
-        for prod_idx, price_list in PRICES:
-            pid = product_ids[prod_idx]
-            for price, retailer, days_ago in price_list:
-                conn.execute(
-                    "INSERT INTO price_entries (product_id, price, retailer, recorded_at) VALUES (?, ?, ?, datetime('now', ?))",
-                    (pid, price, retailer, f"-{days_ago} days"),
+            print("Products already exist. Skipping product/price seed.")
+            product_ids = [r[0] for r in conn.execute("SELECT id FROM products ORDER BY id LIMIT 5").fetchall()]
+        else:
+            product_ids = []
+            for p in PRODUCTS:
+                cur = conn.execute(
+                    "INSERT INTO products (name, brand, category, description, url) VALUES (?, ?, ?, ?, ?)",
+                    (p["name"], p["brand"], p["category"], p["description"], p["url"]),
                 )
+                product_ids.append(cur.lastrowid)
+                print(f"  Added product: {p['name']}")
+
+            for prod_idx, price_list in PRICES:
+                pid = product_ids[prod_idx]
+                for price, retailer, days_ago in price_list:
+                    conn.execute(
+                        "INSERT INTO price_entries (product_id, price, retailer, recorded_at) VALUES (?, ?, ?, datetime('now', ?))",
+                        (pid, price, retailer, f"-{days_ago} days"),
+                    )
+
+        # Seed sample alerts if none exist (demonstrates 3 scenarios)
+        existing_alerts = conn.execute("SELECT COUNT(*) FROM alerts").fetchone()[0]
+        if existing_alerts == 0 and len(product_ids) >= 4:
+            # Scenario 1: "below" alert not yet triggered (current $459.99 > $450 threshold)
+            conn.execute(
+                "INSERT INTO alerts (product_id, threshold_price, alert_type, notes) VALUES (?, ?, ?, ?)",
+                (product_ids[0], 450.00, "below", "Buy if Stealth 2 drops to $450"),
+            )
+            # Scenario 2: "above" alert not yet triggered (current $379.99 < $400 threshold)
+            conn.execute(
+                "INSERT INTO alerts (product_id, threshold_price, alert_type, notes) VALUES (?, ?, ?, ?)",
+                (product_ids[3], 400.00, "above", "Watch Scotty Cameron resale value"),
+            )
+            # Scenario 3: "below" alert previously triggered (Pro V1 hit $47.99, below $48)
+            conn.execute(
+                "INSERT INTO alerts (product_id, threshold_price, alert_type, notes, triggered_at, triggered_price)"
+                " VALUES (?, ?, ?, ?, ?, ?)",
+                (product_ids[2], 48.00, "below", "Pro V1 deal alert",
+                 "2026-06-01 12:00:00", 47.99),
+            )
+            print("Seeded 3 example alerts (below/not triggered, above/not triggered, below/triggered).")
 
     print(f"\nSeeded {len(PRODUCTS)} products with price history.")
     print("Run: python app.py")
