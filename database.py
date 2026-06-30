@@ -26,8 +26,17 @@ def db():
 
 
 SCHEMA = """
+CREATE TABLE IF NOT EXISTS users (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    username      TEXT    NOT NULL UNIQUE,
+    email         TEXT    NOT NULL DEFAULT '',
+    password_hash TEXT    NOT NULL,
+    created_at    TEXT    NOT NULL DEFAULT (datetime('now'))
+);
+
 CREATE TABLE IF NOT EXISTS products (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id     INTEGER REFERENCES users(id) ON DELETE CASCADE,
     name        TEXT    NOT NULL,
     brand       TEXT    NOT NULL DEFAULT '',
     category    TEXT    NOT NULL DEFAULT 'Other',
@@ -46,10 +55,10 @@ CREATE TABLE IF NOT EXISTS price_entries (
     FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE
 );
 
--- Stub table for follow-on issue: price alert system
 CREATE TABLE IF NOT EXISTS alerts (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
     product_id      INTEGER NOT NULL,
+    user_id         INTEGER REFERENCES users(id) ON DELETE CASCADE,
     threshold_price REAL    NOT NULL,
     alert_type      TEXT    NOT NULL DEFAULT 'below',
     is_active       INTEGER NOT NULL DEFAULT 1,
@@ -59,9 +68,48 @@ CREATE TABLE IF NOT EXISTS alerts (
 """
 
 
+def _migrate(conn):
+    """Add columns to existing tables that predate the auth migration."""
+    cols = {row[1] for row in conn.execute("PRAGMA table_info(products)").fetchall()}
+    if "user_id" not in cols:
+        conn.execute(
+            "ALTER TABLE products ADD COLUMN user_id INTEGER REFERENCES users(id) ON DELETE CASCADE"
+        )
+
+    alert_cols = {row[1] for row in conn.execute("PRAGMA table_info(alerts)").fetchall()}
+    if "user_id" not in alert_cols:
+        conn.execute(
+            "ALTER TABLE alerts ADD COLUMN user_id INTEGER REFERENCES users(id) ON DELETE CASCADE"
+        )
+
+    # Assign orphaned products (from pre-auth data) to the first existing user,
+    # or create a default admin user if none exist.
+    orphaned = conn.execute("SELECT COUNT(*) FROM products WHERE user_id IS NULL").fetchone()[0]
+    if orphaned > 0:
+        user = conn.execute("SELECT id FROM users ORDER BY id LIMIT 1").fetchone()
+        if user:
+            conn.execute("UPDATE products SET user_id = ? WHERE user_id IS NULL", (user["id"],))
+        else:
+            import secrets
+            from auth import hash_password
+            tmp_password = secrets.token_hex(8)
+            cur = conn.execute(
+                "INSERT INTO users (username, email, password_hash) VALUES (?, ?, ?)",
+                ("admin", "", hash_password(tmp_password)),
+            )
+            admin_id = cur.lastrowid
+            conn.execute("UPDATE products SET user_id = ? WHERE user_id IS NULL", (admin_id,))
+            print("\n[Golf Price Monitor] Created admin user for existing data.")
+            print(f"  Username: admin")
+            print(f"  Password: {tmp_password}")
+            print("  (Change this password in Account Settings after first login)\n")
+
+
 def init_db():
     with db() as conn:
         conn.executescript(SCHEMA)
+    with db() as conn:
+        _migrate(conn)
 
 
 CATEGORIES = [

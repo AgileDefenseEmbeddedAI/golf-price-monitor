@@ -10,6 +10,57 @@
 </head>
 <body>
 
+<!-- ── Auth overlay (shown when logged out) ───────────────────────────────── -->
+<div id="auth-overlay" class="auth-overlay">
+  <div class="auth-card">
+    <div class="auth-header">
+      <span class="auth-icon">⛳</span>
+      <h1>Golf Price Monitor</h1>
+      <p>Track golf equipment prices over time</p>
+    </div>
+    <div class="auth-tabs">
+      <button class="auth-tab active" data-tab="login">Login</button>
+      <button class="auth-tab" data-tab="register">Register</button>
+    </div>
+
+    <!-- Login form -->
+    <form id="form-login" class="auth-form">
+      <div class="form-row">
+        <label for="login-username">Username</label>
+        <input type="text" id="login-username" required autocomplete="username" placeholder="your username" />
+      </div>
+      <div class="form-row">
+        <label for="login-password">Password</label>
+        <input type="password" id="login-password" required autocomplete="current-password" placeholder="••••••••" />
+      </div>
+      <div id="auth-error" class="auth-error hidden"></div>
+      <button type="submit" class="btn btn-primary auth-submit">Login</button>
+    </form>
+
+    <!-- Register form -->
+    <form id="form-register" class="auth-form hidden">
+      <div class="form-row">
+        <label for="reg-username">Username <span class="required">*</span></label>
+        <input type="text" id="reg-username" required autocomplete="username" minlength="3" maxlength="32" placeholder="3–32 characters" />
+      </div>
+      <div class="form-row">
+        <label for="reg-email">Email <span class="optional">(optional)</span></label>
+        <input type="email" id="reg-email" autocomplete="email" placeholder="you@example.com" />
+      </div>
+      <div class="form-row">
+        <label for="reg-password">Password <span class="required">*</span></label>
+        <input type="password" id="reg-password" required autocomplete="new-password" minlength="6" placeholder="at least 6 characters" />
+      </div>
+      <div class="form-row">
+        <label for="reg-password2">Confirm Password <span class="required">*</span></label>
+        <input type="password" id="reg-password2" required autocomplete="new-password" placeholder="repeat password" />
+      </div>
+      <div id="reg-error" class="auth-error hidden"></div>
+      <button type="submit" class="btn btn-primary auth-submit">Create Account</button>
+    </form>
+  </div>
+</div>
+
 <!-- ── Header ────────────────────────────────────────────────────────────── -->
 <header class="app-header">
   <div class="header-brand">
@@ -21,7 +72,12 @@
     <span class="stat-pill" id="stat-prices">– price entries</span>
     <span class="stat-pill drops" id="stat-drops">– price drops</span>
   </div>
-  <button class="btn btn-primary" id="btn-add-product">+ Add Product</button>
+  <div class="header-user">
+    <button class="btn btn-primary" id="btn-add-product">+ Add Product</button>
+    <span class="header-username" id="header-username"></span>
+    <button class="btn btn-ghost btn-sm" id="btn-account">Account</button>
+    <button class="btn btn-ghost btn-sm" id="btn-logout">Logout</button>
+  </div>
 </header>
 
 <!-- ── Main layout ────────────────────────────────────────────────────────── -->
@@ -119,6 +175,39 @@
       <div class="modal-actions">
         <button type="button" class="btn btn-secondary" data-modal="modal-price">Cancel</button>
         <button type="submit" class="btn btn-primary">Add Price</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- ── Modal: Account Settings ───────────────────────────────────────────── -->
+<div class="modal-backdrop hidden" id="modal-account">
+  <div class="modal">
+    <div class="modal-header">
+      <h2>Account Settings</h2>
+      <button class="modal-close" data-modal="modal-account">×</button>
+    </div>
+    <div class="account-info">
+      <span class="account-label">Logged in as</span>
+      <strong id="account-username-display"></strong>
+    </div>
+    <form id="form-change-password" autocomplete="off">
+      <h3 class="form-section-title">Change Password</h3>
+      <div class="form-row">
+        <label for="cp-current">Current Password</label>
+        <input type="password" id="cp-current" required autocomplete="current-password" />
+      </div>
+      <div class="form-row">
+        <label for="cp-new">New Password</label>
+        <input type="password" id="cp-new" required minlength="6" autocomplete="new-password" />
+      </div>
+      <div class="form-row">
+        <label for="cp-confirm">Confirm New Password</label>
+        <input type="password" id="cp-confirm" required autocomplete="new-password" />
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-secondary" data-modal="modal-account">Cancel</button>
+        <button type="submit" class="btn btn-primary">Update Password</button>
       </div>
     </form>
   </div>

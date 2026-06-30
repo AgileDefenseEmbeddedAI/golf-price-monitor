@@ -3,6 +3,7 @@ Populate the database with sample golf equipment and price history.
 Run once after initializing the database: python seed.py
 """
 from database import init_db, db
+from auth import hash_password
 
 PRODUCTS = [
     {
@@ -51,6 +52,9 @@ PRICES = [
     (4, [(179.99, "Titleist.com", 45), (159.99, "Amazon", 21), (169.99, "Golf Galaxy", 5)]),
 ]
 
+DEMO_USERNAME = "demo"
+DEMO_PASSWORD = "demo1234"
+
 
 def main():
     init_db()
@@ -60,11 +64,26 @@ def main():
             print("Database already has data. Skipping seed.")
             return
 
+        # Create demo user
+        user_row = conn.execute(
+            "SELECT id FROM users WHERE username = ?", (DEMO_USERNAME,)
+        ).fetchone()
+        if user_row:
+            user_id = user_row["id"]
+            print(f"  Using existing user: {DEMO_USERNAME}")
+        else:
+            cur = conn.execute(
+                "INSERT INTO users (username, email, password_hash) VALUES (?, ?, ?)",
+                (DEMO_USERNAME, "", hash_password(DEMO_PASSWORD)),
+            )
+            user_id = cur.lastrowid
+            print(f"  Created demo user: {DEMO_USERNAME} / {DEMO_PASSWORD}")
+
         product_ids = []
         for p in PRODUCTS:
             cur = conn.execute(
-                "INSERT INTO products (name, brand, category, description, url) VALUES (?, ?, ?, ?, ?)",
-                (p["name"], p["brand"], p["category"], p["description"], p["url"]),
+                "INSERT INTO products (user_id, name, brand, category, description, url) VALUES (?, ?, ?, ?, ?, ?)",
+                (user_id, p["name"], p["brand"], p["category"], p["description"], p["url"]),
             )
             product_ids.append(cur.lastrowid)
             print(f"  Added product: {p['name']}")
@@ -78,6 +97,7 @@ def main():
                 )
 
     print(f"\nSeeded {len(PRODUCTS)} products with price history.")
+    print(f"Login with username='{DEMO_USERNAME}' password='{DEMO_PASSWORD}'")
     print("Run: python app.py")
 
 

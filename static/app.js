@@ -1,10 +1,22 @@
+/* ── Auth state ──────────────────────────────────────────────────────────── */
+
+let authToken = localStorage.getItem("golf_auth_token");
+let currentUser = null;
+
 /* ── API helpers ─────────────────────────────────────────────────────────── */
 
 async function api(method, path, body) {
   const opts = { method, headers: { "Content-Type": "application/json" } };
+  if (authToken) opts.headers["Authorization"] = `Bearer ${authToken}`;
   if (body !== undefined) opts.body = JSON.stringify(body);
   const res = await fetch("/api" + path, opts);
   if (res.status === 204) return null;
+  if (res.status === 401) {
+    doLogout();
+    const err = new Error("Session expired. Please log in again.");
+    err.isAuthError = true;
+    throw err;
+  }
   const data = await res.json();
   if (!res.ok) throw new Error(data.detail || "Request failed");
   return data;
@@ -14,6 +26,163 @@ const GET    = (p)    => api("GET",    p);
 const POST   = (p, b) => api("POST",   p, b);
 const PUT    = (p, b) => api("PUT",    p, b);
 const DELETE = (p)    => api("DELETE", p);
+
+/* ── Auth helpers ────────────────────────────────────────────────────────── */
+
+function showAuthOverlay() {
+  document.getElementById("auth-overlay").classList.remove("hidden");
+}
+
+function hideAuthOverlay() {
+  document.getElementById("auth-overlay").classList.add("hidden");
+}
+
+function setUserDisplay(user) {
+  document.getElementById("header-username").textContent = user.username;
+  document.getElementById("account-username-display").textContent = user.username;
+}
+
+function doLogout() {
+  authToken = null;
+  currentUser = null;
+  localStorage.removeItem("golf_auth_token");
+  showAuthOverlay();
+}
+
+async function checkAuth() {
+  if (!authToken) { showAuthOverlay(); return false; }
+  try {
+    currentUser = await GET("/auth/me");
+    setUserDisplay(currentUser);
+    hideAuthOverlay();
+    return true;
+  } catch (e) {
+    if (!e.isAuthError) { showAuthOverlay(); }
+    return false;
+  }
+}
+
+/* ── Auth: tab switching ─────────────────────────────────────────────────── */
+
+document.querySelectorAll(".auth-tab").forEach(tab => {
+  tab.addEventListener("click", () => {
+    document.querySelectorAll(".auth-tab").forEach(t => t.classList.remove("active"));
+    tab.classList.add("active");
+    const target = tab.dataset.tab;
+    document.getElementById("form-login").classList.toggle("hidden", target !== "login");
+    document.getElementById("form-register").classList.toggle("hidden", target !== "register");
+    document.getElementById("auth-error").classList.add("hidden");
+    document.getElementById("reg-error").classList.add("hidden");
+  });
+});
+
+/* ── Auth: login ─────────────────────────────────────────────────────────── */
+
+document.getElementById("form-login").addEventListener("submit", async e => {
+  e.preventDefault();
+  const errEl = document.getElementById("auth-error");
+  errEl.classList.add("hidden");
+  try {
+    const res = await fetch("/api/auth/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        username: document.getElementById("login-username").value.trim(),
+        password: document.getElementById("login-password").value,
+      }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      errEl.textContent = data.detail || "Login failed";
+      errEl.classList.remove("hidden");
+      return;
+    }
+    authToken = data.access_token;
+    currentUser = data.user;
+    localStorage.setItem("golf_auth_token", authToken);
+    setUserDisplay(currentUser);
+    hideAuthOverlay();
+    await bootApp();
+  } catch (e) {
+    errEl.textContent = e.message || "Login failed";
+    errEl.classList.remove("hidden");
+  }
+});
+
+/* ── Auth: register ──────────────────────────────────────────────────────── */
+
+document.getElementById("form-register").addEventListener("submit", async e => {
+  e.preventDefault();
+  const errEl = document.getElementById("reg-error");
+  errEl.classList.add("hidden");
+  const pw1 = document.getElementById("reg-password").value;
+  const pw2 = document.getElementById("reg-password2").value;
+  if (pw1 !== pw2) {
+    errEl.textContent = "Passwords do not match";
+    errEl.classList.remove("hidden");
+    return;
+  }
+  try {
+    const res = await fetch("/api/auth/register", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        username: document.getElementById("reg-username").value.trim(),
+        email: document.getElementById("reg-email").value.trim(),
+        password: pw1,
+      }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      errEl.textContent = data.detail || "Registration failed";
+      errEl.classList.remove("hidden");
+      return;
+    }
+    authToken = data.access_token;
+    currentUser = data.user;
+    localStorage.setItem("golf_auth_token", authToken);
+    setUserDisplay(currentUser);
+    hideAuthOverlay();
+    await bootApp();
+  } catch (e) {
+    errEl.textContent = e.message || "Registration failed";
+    errEl.classList.remove("hidden");
+  }
+});
+
+/* ── Auth: logout & account ──────────────────────────────────────────────── */
+
+document.getElementById("btn-logout").addEventListener("click", doLogout);
+
+document.getElementById("btn-account").addEventListener("click", () => {
+  if (currentUser) {
+    document.getElementById("account-username-display").textContent = currentUser.username;
+  }
+  openModal("modal-account");
+});
+
+document.getElementById("form-change-password").addEventListener("submit", async e => {
+  e.preventDefault();
+  const newPw = document.getElementById("cp-new").value;
+  const confirmPw = document.getElementById("cp-confirm").value;
+  if (newPw !== confirmPw) {
+    toast("Passwords do not match", true);
+    return;
+  }
+  try {
+    await PUT("/auth/password", {
+      current_password: document.getElementById("cp-current").value,
+      new_password: newPw,
+    });
+    toast("Password updated");
+    closeModal("modal-account");
+    document.getElementById("cp-current").value = "";
+    document.getElementById("cp-new").value = "";
+    document.getElementById("cp-confirm").value = "";
+  } catch (e) {
+    if (!e.isAuthError) toast(e.message, true);
+  }
+});
 
 /* ── State ───────────────────────────────────────────────────────────────── */
 
@@ -78,7 +247,9 @@ async function loadStats() {
     document.getElementById("stat-products").textContent = `${s.total_products} product${s.total_products !== 1 ? "s" : ""}`;
     document.getElementById("stat-prices").textContent   = `${s.total_price_entries} price entries`;
     document.getElementById("stat-drops").textContent    = `${s.price_drops} price drop${s.price_drops !== 1 ? "s" : ""}`;
-  } catch (_) {}
+  } catch (e) {
+    if (!e.isAuthError) console.warn("stats:", e);
+  }
 }
 
 /* ── Categories ──────────────────────────────────────────────────────────── */
@@ -87,6 +258,9 @@ async function loadCategories() {
   state.categories = await GET("/categories");
   const filterSel = document.getElementById("category-filter");
   const formSel   = document.getElementById("product-category");
+  // Reset to avoid duplicates on re-login
+  filterSel.innerHTML = '<option value="">All categories</option>';
+  formSel.innerHTML   = "";
   state.categories.forEach(cat => {
     [filterSel, formSel].forEach(sel => {
       const opt = document.createElement("option");
@@ -145,7 +319,7 @@ async function selectProduct(id) {
     ]);
     renderDetail(product, priceData.items);
   } catch (e) {
-    panel.innerHTML = `<div class="empty-state">Error: ${esc(e.message)}</div>`;
+    if (!e.isAuthError) panel.innerHTML = `<div class="empty-state">Error: ${esc(e.message)}</div>`;
   }
 }
 
@@ -405,7 +579,7 @@ document.getElementById("form-product").addEventListener("submit", async e => {
     await Promise.all([loadProducts(), loadStats()]);
     if (state.selectedId) selectProduct(state.selectedId);
   } catch (e) {
-    toast(e.message, true);
+    if (!e.isAuthError) toast(e.message, true);
   }
 });
 
@@ -441,7 +615,7 @@ document.getElementById("form-price").addEventListener("submit", async e => {
     await Promise.all([loadStats(), selectProduct(+productId)]);
     await loadProducts();
   } catch (e) {
-    toast(e.message, true);
+    if (!e.isAuthError) toast(e.message, true);
   }
 });
 
@@ -482,7 +656,7 @@ document.getElementById("btn-confirm-delete").addEventListener("click", async ()
     try {
       await pendingDeleteFn();
     } catch (e) {
-      toast(e.message, true);
+      if (!e.isAuthError) toast(e.message, true);
     }
     pendingDeleteFn = null;
   }
@@ -511,7 +685,19 @@ function esc(str) {
 
 /* ── Boot ────────────────────────────────────────────────────────────────── */
 
-(async () => {
+async function bootApp() {
+  state.selectedId = null;
+  state.products = [];
+  document.getElementById("detail-panel").innerHTML = `
+    <div class="empty-state large">
+      <div class="empty-icon">⛳</div>
+      <p>Select a product to see its price history,<br>or add a new one to get started.</p>
+    </div>`;
   await loadCategories();
   await Promise.all([loadProducts(), loadStats()]);
+}
+
+(async () => {
+  const authed = await checkAuth();
+  if (authed) await bootApp();
 })();
