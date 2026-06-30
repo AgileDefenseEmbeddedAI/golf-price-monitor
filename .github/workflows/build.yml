@@ -1,0 +1,40 @@
+name: Claude Code — primary prototype build
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: primary-build
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+  id-token: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          prompt: |
+            You are building the first, foundational version of this prototype. Read
+            CLAUDE.md and the PRD it links, then build as much of the product as you
+            reasonably can in a single pass: project scaffolding, the core end-to-end
+            happy path, and as many of the PRD's features as you can make genuinely
+            runnable. Favor a working, runnable slice over breadth.
+
+            Commit your work directly to the default branch — do NOT open a pull
+            request. Keep the project runnable and document the install/run commands in
+            the README under a "Running" section. The "Planned follow-on work" listed in
+            CLAUDE.md will be filed as issues AFTER you finish and built on top of what
+            you commit here, so leave the default branch clean and working, and don't
+            try to do that follow-on work yourself.
+          # bypassPermissions: the action runs unattended — there is no human to approve
+          # tool calls, so the default agent policy denies every file write and git
+          # command. Repos are private, throwaway prototypes, so full autonomy is safe.
+          claude_args: "--permission-mode bypassPermissions --model claude-sonnet-4-6 --max-turns 60"
